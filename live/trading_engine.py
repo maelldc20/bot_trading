@@ -1,34 +1,19 @@
 import logging
-import os
 from live.telegram import send_telegram
 
 log = logging.getLogger(__name__)
 
-
 class TradingEngine:
-    def __init__(self, api):
+    def __init__(self, api, fixed_size=0.001):
         self.api = api
-        self.risk_per_trade = float(os.getenv("RISK_PER_TRADE", "0.01"))
-
-    def _compute_position_size(self, symbol, price):
-        balance_usdt = self.api.get_balance("USDT")
-        if balance_usdt <= 0:
-            log.warning("Solde USDT insuffisant.")
-            return 0
-
-        risk_amount = balance_usdt * self.risk_per_trade
-        qty = risk_amount / price
-        return qty
+        self.fixed_size = fixed_size  # taille fixe, simple, robuste
 
     def execute(self, symbol, signal):
         try:
             ticker = self.api.exchange.fetch_ticker(symbol)
             price = ticker["last"]
-            qty = self._compute_position_size(symbol, price)
 
-            if qty <= 0:
-                send_telegram("⚠ Taille de position invalide.")
-                return
+            qty = self.fixed_size
 
             if signal == "BUY":
                 order = self.api.create_market_order(symbol, "buy", qty)
