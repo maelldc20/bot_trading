@@ -1,6 +1,5 @@
 import ccxt
 import pandas as pd
-import time
 import logging
 
 class BinanceAPI:
@@ -10,11 +9,14 @@ class BinanceAPI:
             "secret": api_secret,
             "enableRateLimit": True,
             "options": {
-                "defaultType": "spot"
+                "defaultType": "spot",
+                "adjustForTimeDifference": True,
             },
             "urls": {
-                # ENDPOINT STABLE POUR RENDER
-                "api": "https://testnet.binance.com"
+                "api": {
+                    "public": "https://testnet.binance.vision/api",
+                    "private": "https://testnet.binance.vision/api"
+                }
             }
         })
 
@@ -38,34 +40,4 @@ class BinanceAPI:
 
         except Exception as e:
             logging.error(f"Erreur OHLCV Binance : {e}")
-            return None
-
-    # ---------------------------------------------------------
-    # Récupération du solde USDT
-    # ---------------------------------------------------------
-    def get_balance(self, asset="USDT"):
-        try:
-            balance = self.exchange.fetch_balance()
-            return balance.get(asset, {}).get("free", 0)
-        except Exception as e:
-            logging.error(f"Erreur récupération balance : {e}")
-            return 0
-
-    # ---------------------------------------------------------
-    # Passer un ordre (market)
-    # ---------------------------------------------------------
-    def place_order(self, symbol, side, amount):
-        try:
-            logging.info(f"Placement ordre {side.upper()} {amount} {symbol}…")
-            order = self.exchange.create_order(
-                symbol=symbol,
-                type="market",
-                side=side,
-                amount=amount
-            )
-            logging.info(f"Ordre exécuté : {order}")
-            return order
-
-        except Exception as e:
-            logging.error(f"Erreur placement ordre : {e}")
             return None
