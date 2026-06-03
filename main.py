@@ -1,72 +1,83 @@
-import logging
-import time
 import os
-import pandas as pd
-
-from core.strategy import generate_signal
+import time
+import logging
 from exchange.binance_api import BinanceAPI
-from live.trading_engine import TradingEngine
-from live.telegram import send_telegram
+from strategy.trend_strategy import TrendStrategy
+from risk.risk_manager import RiskManager
 
+# ---------------------------------------------------------
+# CONFIG LOGGING
+# ---------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s — %(levelname)s — %(message)s",
+    format="%(asctime)s — %(levelname)s — %(message)s"
 )
-log = logging.getLogger(__name__)
 
 print(">>> MAIN.PY LOADED (BINANCE) <<<")
+print(">>> BOT STARTING (BINANCE) <<<")
 
+# ---------------------------------------------------------
+# CHARGEMENT DES VARIABLES D’ENVIRONNEMENT
+# ---------------------------------------------------------
+BINANCE_API_KEY = os.getenv("BINANCE_API_KEY")
+BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET")
+MODE = os.getenv("MODE", "paper")  # paper ou live
 
+if not BINANCE_API_KEY or not BINANCE_API_SECRET:
+    logging.error("❌ ERREUR : Les clés API Binance ne sont pas définies dans Render.")
+    raise SystemExit("Clés API manquantes.")
+
+logging.info(f"Mode de trading : {MODE.upper()}")
+
+# ---------------------------------------------------------
+# INITIALISATION DES MODULES
+# ---------------------------------------------------------
+api = BinanceAPI(BINANCE_API_KEY, BINANCE_API_SECRET)
+strategy = TrendStrategy()
+risk = RiskManager()
+
+# ---------------------------------------------------------
+# BOUCLE PRINCIPALE
+# ---------------------------------------------------------
 def main_loop():
-    print(">>> BOT STARTING (BINANCE) <<<")
-
-    api = BinanceAPI()
-    engine = TradingEngine(api)
-
-    symbol = "BTC/USDT"
-    timeframe = "4h"
-    last_candle_time = None
-
     while True:
         try:
-            log.info(f"Récupération des bougies {timeframe} Binance pour {symbol}…")
-            ohlcv = api.get_ohlcv(symbol, timeframe, limit=200)
-
-            if not ohlcv:
-                log.warning("Aucune donnée reçue, nouvelle tentative dans 10s…")
+            # 1) Récupération des données
+            df = api.get_ohlcv("BTC/USDT", "4h", 200)
+            if df is None:
+                logging.warning("Aucune donnée reçue, nouvelle tentative dans 10s…")
                 time.sleep(10)
                 continue
 
-            df = pd.DataFrame(
-                ohlcv,
-                columns=["timestamp", "open", "high", "low", "close", "volume"]
-            )
+            # 2) Calcul du signal
+            signal = strategy.generate_signal(df)
+            logging.info(f"Signal généré : {signal}")
 
-            current_candle_time = df["timestamp"].iloc[-1]
+            # 3) Gestion du risque
+            amount = risk.calculate_position_size(df)
+            logging.info(f"Position size calculée : {amount}")
 
-            if last_candle_time == current_candle_time:
-                log.info("Pas de nouvelle bougie.")
-                time.sleep(60)
-                continue
-
-            last_candle_time = current_candle_time
-            send_telegram("🕓 Nouvelle bougie 4H détectée (Binance Testnet)")
-
-            signal = generate_signal(df)
-            send_telegram(f"📈 Signal généré : {signal}")
-
-            if signal in ["BUY", "SELL"]:
-                engine.execute(symbol, signal)
+            # 4) Exécution de l’ordre (si pas en paper)
+            if MODE == "live":
+                if signal == "BUY":
+                    api.place_order("BTC/USDT", "buy", amount)
+                elif signal == "SELL":
+                    api.place_order("BTC/USDT", "sell", amount)
+                else:
+                    logging.info("Aucun ordre exécuté (signal neutre).")
             else:
-                log.info("Aucun signal de trade.")
+                logging.info(f"[PAPER] → Signal : {signal}, Amount : {amount}")
 
+            # 5) Pause avant la prochaine bougie
+            logging.info("Pause 60s avant la prochaine itération…")
             time.sleep(60)
 
         except Exception as e:
-            log.error(f"Erreur dans la boucle principale : {e}", exc_info=True)
-            send_telegram(f"❌ Erreur bot Binance : {e}")
+            logging.error(f"Erreur dans la boucle principale : {e}")
             time.sleep(10)
 
-
+# ---------------------------------------------------------
+# LANCEMENT DU BOT
+# ---------------------------------------------------------
 if __name__ == "__main__":
     main_loop()
