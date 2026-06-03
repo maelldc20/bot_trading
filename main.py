@@ -2,8 +2,8 @@ import os
 import time
 import logging
 from exchange.binance_api import BinanceAPI
-from strategy.trend_strategy import TrendStrategy
-from risk.risk_manager import RiskManager
+from core.strategy import TrendStrategy
+from core.risk import RiskManager
 
 # ---------------------------------------------------------
 # CONFIG LOGGING
