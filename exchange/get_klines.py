@@ -1,24 +1,32 @@
+import os
+import ccxt
 import pandas as pd
-from binance.client import Client
+from typing import Optional
 
-def get_klines(symbol: str, interval="4h", limit=200):
-    client = Client("", "", testnet=True)
+API_KEY: Optional[str] = os.getenv("API_KEY")
+API_SECRET: Optional[str] = os.getenv("API_SECRET")
 
-    klines = client.futures_klines(
-        symbol=symbol,
-        interval=interval,
-        limit=limit
+exchange = ccxt.binance({
+    "apiKey": API_KEY or "",
+    "secret": API_SECRET or "",
+    "enableRateLimit": True,
+    "options": {"defaultType": "future"},
+    "urls": {
+        "api": {
+            "public": "https://testnet.binancefuture.com/fapi/v1",
+            "private": "https://testnet.binancefuture.com/fapi/v1"
+        }
+    }
+})
+
+def get_klines(symbol: str, interval: str = "4h", limit: int = 200):
+    ohlcv = exchange.fetch_ohlcv(symbol, timeframe=interval, limit=limit)
+
+    df = pd.DataFrame(
+        ohlcv,
+        columns=["timestamp", "open", "high", "low", "close", "volume"]
     )
 
-    df = pd.DataFrame(klines, columns=[
-        "open_time","open","high","low","close","volume",
-        "close_time","quote_asset_volume","number_of_trades",
-        "taker_buy_base","taker_buy_quote","ignore"
-    ])
-
-    df["open"] = df["open"].astype(float)
-    df["high"] = df["high"].astype(float)
-    df["low"] = df["low"].astype(float)
-    df["close"] = df["close"].astype(float)
+    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
 
     return df

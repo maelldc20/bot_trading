@@ -1,54 +1,35 @@
 import time
-from binance.client import Client
+import traceback
+from exchange.get_klines import get_klines
 
-from core.order_manager import OrderManager
-from core.risk_manager import RiskManager
-from core.strategy import annotate_signals
-from exchange import get_klines
+SYMBOL = "BTC/USDT"
+INTERVAL = "4h"
 
-import os
+def run_bot():
+    print("📊 Fetching klines...")
+    df = get_klines(SYMBOL, INTERVAL, limit=200)
 
-API_KEY = os.getenv("API_KEY")
-API_SECRET = os.getenv("API_SECRET")
+    print(f"✔ Data loaded: {len(df)} rows")
+    print(df.tail())
 
-client = Client(API_KEY, API_SECRET, testnet=True)
+    # TODO: call your strategy here
+    # signal = strategy(df)
+    # order_manager.execute(signal)
 
-om = OrderManager(client)
-rm = RiskManager(risk_percent=0.01, atr_multiplier=2)
+def main():
+    print("🚀 Bot started on Render")
 
-symbol = "BTCUSDT"
-capital = 1000
-position = None
-sl_price = None
-size = 0
+    while True:
+        try:
+            run_bot()
 
-while True:
-    # 1) Récupérer les données
-    df = get_klines(symbol, interval="4h", limit=200)
-    df = annotate_signals(df)
+        except Exception as e:
+            print("❌ ERROR in bot loop:")
+            print(e)
+            traceback.print_exc()
 
-    signal = df["signal"].iloc[-1]
-    price = df["close"].iloc[-1]
-    atr = df["ATR"].iloc[-1]
+        print("⏳ Sleeping 10 seconds...")
+        time.sleep(10)
 
-    # Stop-loss touché
-    if position == "LONG" and price <= sl_price:
-        om.close_long(symbol, size)
-        position = None
-        continue
-
-    # EXIT signal
-    if signal == "EXIT" and position == "LONG":
-        om.close_long(symbol, size)
-        position = None
-        continue
-
-    # LONG signal
-    if signal == "LONG" and position is None:
-        sl_price = price - atr * 2
-        size = rm.compute_position_size(capital, price, sl_price)
-
-        om.open_long(symbol, size, sl_price)
-        position = "LONG"
-
-    time.sleep(10)
+if __name__ == "__main__":
+    main()
