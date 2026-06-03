@@ -1,0 +1,12 @@
+[workspace]
+restore_data_on_startup = True
+save_data_on_exit = True
+save_history = True
+save_non_project_files = False
+project_type = 'empty-project-type'
+recent_files = ['backtest\\backtest.py', 'core\\indicators.py', 'core\\risk.py', 'core\\strategy.py', 'backtest\\optimize.py', 'backtest\\walk_forward.py', 'backtest\\walk_forward_bear.py', 'README_TRADING_BOT']
+
+[main]
+version = 0.2.0
+recent_files = []
+
