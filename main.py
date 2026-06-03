@@ -1,13 +1,17 @@
 import os
 import time
 import logging
-from exchange.binance_api import BinanceAPI
-from core.strategy import TrendStrategy
-from core.risk import RiskManager
+import pandas as pd
 
-# ---------------------------------------------------------
-# CONFIG LOGGING
-# ---------------------------------------------------------
+from exchange.binance_api import BinanceAPI
+from core.strategy import generate_signal
+from core.risk import (
+    initial_stop,
+    update_trailing_stop,
+    stop_hit,
+    position_size
+)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s — %(levelname)s — %(message)s"
@@ -17,67 +21,80 @@ print(">>> MAIN.PY LOADED (BINANCE) <<<")
 print(">>> BOT STARTING (BINANCE) <<<")
 
 # ---------------------------------------------------------
-# CHARGEMENT DES VARIABLES D’ENVIRONNEMENT
+# VARIABLES D’ENVIRONNEMENT (Render)
 # ---------------------------------------------------------
-BINANCE_API_KEY = os.getenv("BINANCE_API_KEY")
-BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET")
+API_KEY = os.getenv("BINANCE_API_KEY")
+API_SECRET = os.getenv("BINANCE_API_SECRET")
 MODE = os.getenv("MODE", "paper")  # paper ou live
 
-if not BINANCE_API_KEY or not BINANCE_API_SECRET:
-    logging.error("❌ ERREUR : Les clés API Binance ne sont pas définies dans Render.")
-    raise SystemExit("Clés API manquantes.")
+if not API_KEY or not API_SECRET:
+    raise SystemExit("❌ ERREUR : Clés API manquantes dans Render.")
 
 logging.info(f"Mode de trading : {MODE.upper()}")
 
 # ---------------------------------------------------------
-# INITIALISATION DES MODULES
+# INITIALISATION API
 # ---------------------------------------------------------
-api = BinanceAPI(BINANCE_API_KEY, BINANCE_API_SECRET)
-strategy = TrendStrategy()
-risk = RiskManager()
+api = BinanceAPI(API_KEY, API_SECRET)
 
 # ---------------------------------------------------------
 # BOUCLE PRINCIPALE
 # ---------------------------------------------------------
 def main_loop():
+    balance = 1000  # balance fictive pour paper trading
+    current_stop = None
+
     while True:
         try:
             # 1) Récupération des données
             df = api.get_ohlcv("BTC/USDT", "4h", 200)
-            if df is None:
-                logging.warning("Aucune donnée reçue, nouvelle tentative dans 10s…")
+            if df is None or len(df) < 50:
+                logging.warning("Pas assez de données, retry dans 10s…")
                 time.sleep(10)
                 continue
 
-            # 2) Calcul du signal
-            signal = strategy.generate_signal(df)
+            # 2) Signal de stratégie
+            signal = generate_signal(df)
             logging.info(f"Signal généré : {signal}")
 
-            # 3) Gestion du risque
-            amount = risk.calculate_position_size(df)
-            logging.info(f"Position size calculée : {amount}")
+            last_close = df["close"].iloc[-1]
 
-            # 4) Exécution de l’ordre (si pas en paper)
-            if MODE == "live":
-                if signal == "BUY":
-                    api.place_order("BTC/USDT", "buy", amount)
-                elif signal == "SELL":
-                    api.place_order("BTC/USDT", "sell", amount)
-                else:
-                    logging.info("Aucun ordre exécuté (signal neutre).")
-            else:
-                logging.info(f"[PAPER] → Signal : {signal}, Amount : {amount}")
+            # 3) Gestion du stop
+            if signal == "BUY":
+                entry = last_close
+                stop = initial_stop(df, atr_mult=2.0)
+                size = position_size(balance, entry, stop, risk_pct=0.01)
 
-            # 5) Pause avant la prochaine bougie
-            logging.info("Pause 60s avant la prochaine itération…")
+                logging.info(f"[PAPER] BUY {size:.4f} BTC @ {entry}, STOP = {stop}")
+
+                current_stop = stop
+
+            elif signal == "SELL":
+                logging.info("[PAPER] SELL signal reçu — reset du stop")
+                current_stop = None
+
+            # 4) Mise à jour du trailing stop
+            if current_stop is not None:
+                new_stop = update_trailing_stop(df, current_stop, atr_mult=2.0)
+                if new_stop != current_stop:
+                    logging.info(f"Trailing stop mis à jour : {new_stop}")
+                current_stop = new_stop
+
+                # Vérification stop hit
+                if stop_hit(df, current_stop):
+                    logging.info(f"STOP HIT @ {current_stop} — sortie position")
+                    current_stop = None
+
+            # 5) Pause
+            logging.info("Pause 60s…")
             time.sleep(60)
 
         except Exception as e:
-            logging.error(f"Erreur dans la boucle principale : {e}")
+            logging.error(f"Erreur dans main_loop : {e}")
             time.sleep(10)
 
 # ---------------------------------------------------------
-# LANCEMENT DU BOT
+# LANCEMENT
 # ---------------------------------------------------------
 if __name__ == "__main__":
     main_loop()
